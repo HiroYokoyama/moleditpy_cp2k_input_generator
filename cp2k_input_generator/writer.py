@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
-from .cell_model import Cell, kpoint_mesh_from_density, sorted_by_species
+from .cell_model import Cell, kpoint_mesh_from_density, looks_like_slab, sorted_by_species
 
 RUN_TYPES = (
     "ENERGY_FORCE (single point)",
@@ -370,7 +370,7 @@ def effective_mesh(cell: Cell, settings: Dict) -> Tuple[int, int, int]:
         mesh = list(kpoint_mesh_from_density(cell, float(settings.get("kspacing", 0.03))))
     else:
         mesh = [max(1, int(value)) for value in settings.get("kmesh", [4, 4, 4])]
-    if cell.source == "slab" and settings.get("slab_kpoints_c1", True):
+    if looks_like_slab(cell) and settings.get("slab_kpoints_c1", True):
         mesh[2] = 1
     return tuple(mesh)
 
@@ -389,7 +389,7 @@ def validate(cell: Cell, settings: Optional[Dict] = None) -> List[str]:
             "k-points combined with the OT solver is not supported by every CP2K build — "
             "switch to the diagonalisation solver if the run stops at the &KPOINTS section."
         )
-    if cell.source == "slab" and mesh[2] > 1:
+    if looks_like_slab(cell) and mesh[2] > 1:
         messages.append(
             "The slab is sampled along the vacuum direction; set the third k-point to 1."
         )
@@ -398,7 +398,7 @@ def validate(cell: Cell, settings: Optional[Dict] = None) -> List[str]:
             "An isolated molecule is being treated as fully periodic — add a &POISSON section "
             "with PERIODIC NONE and PSOLVER MT (or WAVELET) to remove the image interaction."
         )
-    if cell.source == "slab" and settings.get("periodic", "XYZ") == "XYZ":
+    if looks_like_slab(cell) and settings.get("periodic", "XYZ") == "XYZ":
         messages.append(
             "For a charged or strongly polar slab consider PERIODIC XY with PSOLVER MT so the "
             "vacuum is not periodic."
