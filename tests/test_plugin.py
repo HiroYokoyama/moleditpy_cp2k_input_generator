@@ -62,11 +62,11 @@ def context():
 
 def test_plugin_metadata():
     assert plugin.PLUGIN_NAME == "CP2K Input Generator"
-    assert plugin.PLUGIN_VERSION == "0.1.0"
+    assert plugin.PLUGIN_VERSION == "0.2.0"
     assert plugin.PLUGIN_AUTHOR == "HiroYokoyama"
     assert plugin.PLUGIN_CATEGORY == "Export"
     assert plugin.PLUGIN_DEPENDENCIES == ["numpy"]
-    assert "cp2k" in plugin.PLUGIN_TAGS
+    assert plugin.PLUGIN_TAGS == ["DFT", "Generator"]
     assert plugin.PLUGIN_DESCRIPTION.strip()
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -46,6 +47,7 @@ class Cp2kInputDialog(QDialog):
         self.mark_modified = mark_modified
         self._updating = False
         self._cell = None
+        self._get_molecule = get_molecule
 
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
@@ -69,6 +71,13 @@ class Cp2kInputDialog(QDialog):
         self.preview.setReadOnly(True)
         self.preview.setFont(QFont("Courier New", 9))
         self.tabs.addTab(self.preview, "Preview")
+
+        self.warning_label = QLabel()
+        self.warning_label.setWordWrap(True)
+        self.warning_label.setTextFormat(Qt.TextFormat.RichText)
+        self.warning_label.setStyleSheet("QLabel { color: #b36b00; }")
+        self.warning_label.setVisible(False)
+        layout.addWidget(self.warning_label)
 
         buttons = QDialogButtonBox()
         self.save_button = buttons.addButton("Save Input...", QDialogButtonBox.ButtonRole.AcceptRole)
@@ -137,6 +146,8 @@ class Cp2kInputDialog(QDialog):
         dft_form.addRow("MULTIPLICITY:", self.multiplicity_spin)
         self.uks_check = QCheckBox("UKS (unrestricted)")
         dft_form.addRow("", self.uks_check)
+        self.auto_charge_check = QCheckBox("Read charge and multiplicity from the molecule")
+        dft_form.addRow("", self.auto_charge_check)
         self.cutoff_spin = QDoubleSpinBox()
         self.cutoff_spin.setRange(50.0, 5000.0)
         self.cutoff_spin.setSingleStep(50.0)
@@ -201,6 +212,7 @@ class Cp2kInputDialog(QDialog):
         for widget in (self.cutoff_spin, self.rel_cutoff_spin, self.kspacing_spin):
             widget.valueChanged.connect(self.update_preview)
         self.uks_check.toggled.connect(self.update_preview)
+        self.auto_charge_check.toggled.connect(self.update_preview)
         self.extra_edit.textChanged.connect(self.update_preview)
         return tab
 
@@ -306,6 +318,7 @@ class Cp2kInputDialog(QDialog):
             self.charge_spin.setValue(int(settings.get("charge", 0)))
             self.multiplicity_spin.setValue(int(settings.get("multiplicity", 1)))
             self.uks_check.setChecked(bool(settings.get("uks")))
+            self.auto_charge_check.setChecked(bool(settings.get("auto_charge", False)))
             self.cutoff_spin.setValue(float(settings.get("cutoff", 400.0)))
             self.rel_cutoff_spin.setValue(float(settings.get("rel_cutoff", 60.0)))
             self.vdw_combo.setCurrentText(settings.get("vdw", writer.VDW_OPTIONS[0]))
@@ -349,6 +362,7 @@ class Cp2kInputDialog(QDialog):
             "charge": self.charge_spin.value(),
             "multiplicity": self.multiplicity_spin.value(),
             "uks": self.uks_check.isChecked(),
+            "auto_charge": self.auto_charge_check.isChecked(),
             "cutoff": self.cutoff_spin.value(),
             "rel_cutoff": self.rel_cutoff_spin.value(),
             "vdw": self.vdw_combo.currentText(),
@@ -380,6 +394,7 @@ class Cp2kInputDialog(QDialog):
     def update_preview(self, *_args) -> None:
         if self._updating:
             return
+        self._apply_auto_charge()
         settings = self.read_settings()
         self.persistent_settings.update(settings)
         if self.mark_modified is not None:
@@ -400,6 +415,7 @@ class Cp2kInputDialog(QDialog):
             self.structure_panel.refresh_summary(error=str(exc))
             self.kind_label.setText("-")
             self.preview.setPlainText(f"# {exc}")
+            self._show_warnings([])
             self.save_button.setEnabled(False)
             return
 
@@ -411,7 +427,34 @@ class Cp2kInputDialog(QDialog):
             )
         )
         self.preview.setPlainText(writer.build_input(self._cell, settings))
+        self._show_warnings(writer.validate(self._cell, settings))
         self.save_button.setEnabled(True)
+
+    def _apply_auto_charge(self) -> None:
+        if not self.auto_charge_check.isChecked() or self._get_molecule is None:
+            return
+        from .cell_model import molecule_charge_and_multiplicity
+
+        try:
+            charge, multiplicity = molecule_charge_and_multiplicity(self._get_molecule())
+        except (ValueError, AttributeError, TypeError):
+            return
+        blocked = self._updating
+        self._updating = True
+        try:
+            self.charge_spin.setValue(int(charge))
+            self.multiplicity_spin.setValue(int(multiplicity))
+        finally:
+            self._updating = blocked
+
+    def _show_warnings(self, messages) -> None:
+        if not messages:
+            self.warning_label.setVisible(False)
+            self.warning_label.clear()
+            return
+        items = "".join(f"<li>{message}</li>" for message in messages)
+        self.warning_label.setText(f"<b>Check:</b><ul>{items}</ul>")
+        self.warning_label.setVisible(True)
 
     def copy_preview(self) -> None:
         from PyQt6.QtWidgets import QApplication

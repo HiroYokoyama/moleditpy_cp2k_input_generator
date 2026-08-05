@@ -13,6 +13,12 @@ with a live preview of the complete input before you save.
   - the structure already open in the **CIF Viewer** plugin panel, copied across
     without re-reading the file
 - **Supercells** — independent a/b/c repeats applied to any source
+- **Surface slab builder** — cut any (hkl) surface from a bulk structure: layers,
+  vacuum thickness, a termination shift that slides the cut window through the
+  cell, and an option to put **c** along the surface normal. Hexagonal
+  Miller-Bravais indices `(hkil)` are accepted and folded to `(hkl)`
+- **Vacuum per axis** — pad one axis only (the usual slab setup) instead of a
+  uniform box
 - **Run types** — `ENERGY_FORCE`, `GEO_OPT`, `CELL_OPT` and `MD`, with `&MOTION`
   written only when the run type needs it
 - **&DFT** — MOLOPT basis sets and matching GTH potentials per `&KIND`, charge and
@@ -30,6 +36,12 @@ with a live preview of the complete input before you save.
 The `&KIND` potential follows the functional (`GTH-PBE`, `GTH-BLYP`, `GTH-PADE`).
 These are the functional aliases from `GTH_POTENTIALS`, which resolve to the right
 valence for every element — no per-element `-qN` guessing.
+
+- **Checks** — a warning strip flags the classic mistakes: a molecule sampled
+  with a dense k-mesh, k-points across a slab's vacuum, too little vacuum,
+  cut-offs that are too low, a relaxation with zero steps, and charged cells
+
+- **Charge and multiplicity** can be read straight from the molecule
 
 ## Install
 
@@ -67,4 +79,4 @@ python -m pytest tests/ -v
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+GNU General Public License v3.0 — see [LICENSE](LICENSE).

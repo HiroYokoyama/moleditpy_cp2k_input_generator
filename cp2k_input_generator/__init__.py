@@ -4,7 +4,7 @@ import logging
 import os
 
 PLUGIN_NAME = "CP2K Input Generator"
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = "0.2.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Generate CP2K Quickstep inputs from the current molecule (in a vacuum box) "
@@ -12,7 +12,7 @@ PLUGIN_DESCRIPTION = (
     "OT or smeared-diagonalisation SCF."
 )
 PLUGIN_CATEGORY = "Export"
-PLUGIN_TAGS = ["cp2k", "quickstep", "periodic", "dft", "input"]
+PLUGIN_TAGS = ["DFT", "Generator"]
 PLUGIN_DEPENDENCIES = ["numpy"]
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 

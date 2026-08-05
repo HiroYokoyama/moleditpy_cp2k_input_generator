@@ -79,6 +79,7 @@ def default_settings() -> Dict:
         "kpoint_mode": KPOINT_MODES[0],
         "kmesh": [4, 4, 4],
         "kspacing": 0.03,
+        "slab_kpoints_c1": True,
         "max_iter": 200,
         "max_force": 4.5e-4,
         "md_steps": 1000,
@@ -250,13 +251,9 @@ def build_xc(settings: Dict) -> Section:
 
 
 def build_kpoints(cell: Cell, settings: Dict) -> Optional[Section]:
-    mode = settings.get("kpoint_mode", KPOINT_MODES[0])
-    if mode == "Gamma point only":
+    if settings.get("kpoint_mode", KPOINT_MODES[0]) == "Gamma point only":
         return None
-    if mode == "Automatic (spacing)":
-        mesh = kpoint_mesh_from_density(cell, float(settings.get("kspacing", 0.03)))
-    else:
-        mesh = tuple(max(1, int(value)) for value in settings.get("kmesh", [4, 4, 4]))
+    mesh = effective_mesh(cell, settings)
     if tuple(mesh) == (1, 1, 1):
         return None
 
@@ -358,3 +355,79 @@ def kind_summary(cell: Cell, settings: Optional[Dict] = None) -> List[Tuple[str,
     basis = settings.get("basis_set", BASIS_SETS[0])
     potential = _POTENTIAL_BY_FUNCTIONAL.get(settings.get("functional", "PBE"), "GTH-PBE")
     return [(element, basis, potential) for element, _ in sorted_by_species(cell)[1]]
+
+
+# --------------------------------------------------------------------------
+# validation
+# --------------------------------------------------------------------------
+
+
+def effective_mesh(cell: Cell, settings: Dict) -> Tuple[int, int, int]:
+    mode = settings.get("kpoint_mode", KPOINT_MODES[0])
+    if mode == "Gamma point only":
+        return (1, 1, 1)
+    if mode == "Automatic (spacing)":
+        mesh = list(kpoint_mesh_from_density(cell, float(settings.get("kspacing", 0.03))))
+    else:
+        mesh = [max(1, int(value)) for value in settings.get("kmesh", [4, 4, 4])]
+    if cell.source == "slab" and settings.get("slab_kpoints_c1", True):
+        mesh[2] = 1
+    return tuple(mesh)
+
+
+def validate(cell: Cell, settings: Optional[Dict] = None) -> List[str]:
+    """Warnings about setups that run but give wrong or wasteful answers."""
+    settings = {**default_settings(), **(settings or {})}
+    messages: List[str] = []
+
+    mesh = effective_mesh(cell, settings)
+    uses_kpoints = max(mesh) > 1
+    is_ot = str(settings.get("scf_solver", SCF_SOLVERS[0])).startswith("OT")
+
+    if uses_kpoints and is_ot:
+        messages.append(
+            "k-points combined with the OT solver is not supported by every CP2K build — "
+            "switch to the diagonalisation solver if the run stops at the &KPOINTS section."
+        )
+    if cell.source == "slab" and mesh[2] > 1:
+        messages.append(
+            "The slab is sampled along the vacuum direction; set the third k-point to 1."
+        )
+    if cell.source == "molecule" and settings.get("periodic", "XYZ") == "XYZ":
+        messages.append(
+            "An isolated molecule is being treated as fully periodic — add a &POISSON section "
+            "with PERIODIC NONE and PSOLVER MT (or WAVELET) to remove the image interaction."
+        )
+    if cell.source == "slab" and settings.get("periodic", "XYZ") == "XYZ":
+        messages.append(
+            "For a charged or strongly polar slab consider PERIODIC XY with PSOLVER MT so the "
+            "vacuum is not periodic."
+        )
+
+    cutoff = float(settings.get("cutoff", 400.0))
+    rel_cutoff = float(settings.get("rel_cutoff", 60.0))
+    if cutoff < 300.0:
+        messages.append(
+            f"CUTOFF = {cutoff:g} Ry is low for MOLOPT/GTH; 400-600 Ry is typical and must be "
+            "converged together with REL_CUTOFF."
+        )
+    if rel_cutoff < 40.0:
+        messages.append(f"REL_CUTOFF = {rel_cutoff:g} Ry is low; 50-70 Ry is the usual range.")
+
+    multiplicity = int(settings.get("multiplicity", 1))
+    if multiplicity > 1 and not settings.get("uks"):
+        messages.append(
+            f"MULTIPLICITY {multiplicity} needs an unrestricted calculation — UKS is written "
+            "automatically here, but check that it is what you intended."
+        )
+    if int(settings.get("charge", 0)) != 0 and settings.get("periodic", "XYZ") != "NONE":
+        messages.append(
+            "A charged periodic cell is neutralised by a background charge; use &POISSON with "
+            "PSOLVER MT for a genuinely isolated charged system."
+        )
+
+    if not is_ot and int(settings.get("added_mos", 0)) < 1:
+        messages.append(
+            "Smearing needs empty states — set ADDED_MOS to roughly 20% of the occupied orbitals."
+        )
+    return messages
