@@ -4,7 +4,7 @@ import logging
 import os
 
 PLUGIN_NAME = "CP2K Input Generator"
-PLUGIN_VERSION = "0.5.1"
+PLUGIN_VERSION = "0.5.2"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Generate CP2K Quickstep inputs from the current molecule (in a vacuum box) "
