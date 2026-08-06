@@ -126,3 +126,39 @@ def test_smearing_without_empty_states(bulk_cell):
 
 def test_multiplicity_note(bulk_cell):
     assert "MULTIPLICITY" in joined(writer.validate(bulk_cell, {"multiplicity": 3}))
+
+
+# -- structure faults reach the CP2K warnings ---------------------------------
+
+
+def test_a_partially_occupied_cif_is_flagged(bulk_cell):
+    disordered = cm.Cell(
+        bulk_cell.name,
+        bulk_cell.lengths,
+        bulk_cell.angles,
+        bulk_cell.lattice,
+        (cm.CellAtom("Fe1", "Fe", np.zeros(3), np.zeros(3), 0.5),),
+        source="cif",
+    )
+    assert "partially occupied" in joined(writer.validate(disordered, {"kmesh": [8, 8, 8]}))
+
+
+def test_a_left_handed_lattice_is_flagged():
+    lattice = np.array([[4.0, 0.0, 0.0], [0.0, 4.0, 0.0], [0.0, 0.0, -4.0]])
+    cell = cm.Cell("lh", (4.0, 4.0, 4.0), (90.0, 90.0, 90.0), lattice, ())
+    assert "left-handed" in joined(writer.validate(cell, {"kmesh": [8, 8, 8]}))
+
+
+def test_overlapping_atoms_are_flagged(bulk_cell):
+    doubled = cm.Cell(
+        bulk_cell.name,
+        bulk_cell.lengths,
+        bulk_cell.angles,
+        bulk_cell.lattice,
+        (
+            cm.CellAtom("Cu1", "Cu", np.zeros(3), np.zeros(3)),
+            cm.CellAtom("Cu2", "Cu", np.array([0.01, 0.0, 0.0]), np.array([0.04, 0.0, 0.0])),
+        ),
+        source="cif",
+    )
+    assert "closer than" in joined(writer.validate(doubled, {"kmesh": [8, 8, 8]}))

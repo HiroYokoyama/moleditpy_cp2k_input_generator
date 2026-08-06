@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
-from .cell_model import Cell, kpoint_mesh_from_density, looks_like_slab, sorted_by_species
+from .cell_model import (
+    Cell,
+    kpoint_mesh_from_density,
+    looks_like_slab,
+    sorted_by_species,
+    structure_warnings,
+)
 
 RUN_TYPES = (
     "ENERGY_FORCE (single point)",
@@ -378,7 +384,8 @@ def effective_mesh(cell: Cell, settings: Dict) -> Tuple[int, int, int]:
 def validate(cell: Cell, settings: Optional[Dict] = None) -> List[str]:
     """Warnings about setups that run but give wrong or wasteful answers."""
     settings = {**default_settings(), **(settings or {})}
-    messages: List[str] = []
+    # A broken structure outranks every keyword warning below it.
+    messages: List[str] = list(structure_warnings(cell))
 
     mesh = effective_mesh(cell, settings)
     uses_kpoints = max(mesh) > 1
