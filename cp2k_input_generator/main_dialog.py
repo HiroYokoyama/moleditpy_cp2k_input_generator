@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from . import PLUGIN_NAME, PLUGIN_VERSION
 from . import writer
 from .structure_panel import StructurePanel
 
@@ -41,7 +42,7 @@ class Cp2kInputDialog(QDialog):
         context=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("CP2K Input Generator")
+        self.setWindowTitle(f"{PLUGIN_NAME} v{PLUGIN_VERSION}")
         self.resize(940, 720)
 
         self.persistent_settings = persistent_settings if persistent_settings is not None else {}
