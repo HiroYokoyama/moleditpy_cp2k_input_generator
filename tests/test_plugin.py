@@ -62,7 +62,7 @@ def context():
 
 def test_plugin_metadata():
     assert plugin.PLUGIN_NAME == "CP2K Input Generator"
-    assert plugin.PLUGIN_VERSION == "0.7.0"
+    assert plugin.PLUGIN_VERSION == "0.7.1"
     assert plugin.PLUGIN_AUTHOR == "HiroYokoyama"
     assert plugin.PLUGIN_CATEGORY == "Export"
     assert plugin.PLUGIN_DEPENDENCIES == ["numpy", "pyvista", "rdkit"]
