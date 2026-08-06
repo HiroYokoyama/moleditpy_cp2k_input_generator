@@ -80,6 +80,7 @@ def _open_dialog(mw):
         get_molecule=_get_molecule,
         mark_modified=_mark_modified,
         get_cif_viewer=_get_cif_viewer,
+        context=_context,
     )
     if _context is not None:
         _context.register_window(WINDOW_ID, dlg)
