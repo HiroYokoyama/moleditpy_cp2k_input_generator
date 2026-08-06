@@ -1,5 +1,10 @@
 # MoleditPy CP2K Input Generator
 
+[![Python CI](https://github.com/HiroYokoyama/moleditpy_cp2k_input_generator/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_cp2k_input_generator/actions/workflows/test.yml)
+![Test Coverage](https://img.shields.io/badge/coverage->90%25-green)
+[![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_cp2k_input_generator?label=version)](https://github.com/HiroYokoyama/moleditpy_cp2k_input_generator/tags)
+[![GitHub Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_cp2k_input_generator/total)](https://github.com/HiroYokoyama/moleditpy_cp2k_input_generator/releases)
+
 A [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) plugin that
 writes **CP2K (Quickstep)** input files from a molecule or a crystal structure,
 with a live preview of the complete input before you save.
