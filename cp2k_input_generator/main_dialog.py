@@ -309,7 +309,7 @@ class Cp2kInputDialog(QDialog):
     # -- drag and drop ----------------------------------------------------
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt naming
-        """Accept a CIF dropped anywhere on the dialog, not just on the panel."""
+        """Accept a CIF dropped anywhere on the dialog, not only on the panel."""
         if dropped_cif_path(event.mimeData()):
             event.acceptProposedAction()
         else:
