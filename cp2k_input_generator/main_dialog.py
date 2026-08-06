@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 
 from . import PLUGIN_NAME, PLUGIN_VERSION
 from . import writer
-from .structure_panel import StructurePanel
+from .structure_panel import StructurePanel, dropped_cif_path
 
 
 class Cp2kInputDialog(QDialog):
@@ -48,6 +48,7 @@ class Cp2kInputDialog(QDialog):
         self.persistent_settings = persistent_settings if persistent_settings is not None else {}
         self.mark_modified = mark_modified
         self.context = context
+        self.setAcceptDrops(True)
         self._updating = False
         self._cell = None
         self._get_molecule = get_molecule
@@ -304,6 +305,26 @@ class Cp2kInputDialog(QDialog):
             widget.valueChanged.connect(self.update_preview)
         self.print_forces_check.toggled.connect(self.update_preview)
         return tab
+
+    # -- drag and drop ----------------------------------------------------
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        """Accept a CIF dropped anywhere on the dialog, not just on the panel."""
+        if dropped_cif_path(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        path = dropped_cif_path(event.mimeData())
+        if not path:
+            event.ignore()
+            return
+        self.structure_panel.load_cif_path(path)
+        event.acceptProposedAction()
 
     # -- settings ---------------------------------------------------------
 
