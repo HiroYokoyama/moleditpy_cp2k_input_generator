@@ -400,3 +400,61 @@ def test_default_settings_are_independent_copies():
     first = writer.default_settings()
     first["cutoff"] = 1.0
     assert writer.default_settings()["cutoff"] == 400.0
+
+
+# -- hybrid functionals -----------------------------------------------------
+
+
+def test_a_gga_writes_no_hf_section(water_cell):
+    assert "&HF" not in writer.build_input(water_cell, {"functional": "PBE"})
+
+
+@pytest.mark.parametrize("functional,fraction", [("PBE0", "0.25"), ("B3LYP", "0.2")])
+def test_a_hybrid_writes_the_hf_section(water_cell, functional, fraction):
+    """The XC_FUNCTIONAL shortcut supplies only the DFT part of a hybrid.
+
+    The CP2K manual says the exact-exchange parameters "are not set
+    automatically", so without &HF the run is quietly not the hybrid it names.
+    """
+    text = writer.build_input(water_cell, {"functional": functional})
+    assert f"&XC_FUNCTIONAL {functional}" in text
+    assert "&HF" in text and "&END HF" in text
+    assert f"FRACTION {fraction}" in text
+
+
+def test_a_periodic_hybrid_truncates_the_coulomb_operator(water_cell):
+    """A bare 1/r operator does not converge under periodic boundary conditions."""
+    text = writer.build_input(water_cell, {"functional": "PBE0", "periodic": "XYZ"})
+    assert "POTENTIAL_TYPE TRUNCATED" in text
+    assert "T_C_G_DATA" in text
+
+
+def test_an_isolated_hybrid_uses_the_plain_coulomb_operator(water_cell):
+    text = writer.build_input(water_cell, {"functional": "PBE0", "periodic": "NONE"})
+    assert "POTENTIAL_TYPE COULOMB" in text
+    assert "TRUNCATED" not in text
+
+
+def test_the_cutoff_radius_never_exceeds_half_the_cell(water_cell):
+    """The truncated operator is only defined out to half the shortest vector."""
+    radius = writer.hf_cutoff_radius(water_cell)
+    assert radius <= min(water_cell.lengths) / 2.0 + 1e-9
+    assert radius <= 6.0
+
+
+def test_hf_fraction_is_zero_for_a_gga():
+    assert writer.hf_fraction({"functional": "PBE"}) == 0.0
+    assert writer.hf_fraction({"functional": "PBE0"}) == 0.25
+
+
+# -- COORD / KIND names -----------------------------------------------------
+
+
+def test_coord_names_keep_the_case_of_the_kind_names():
+    """&COORD rows are matched against &KIND names, so FE must not face Fe."""
+    cell = cm.cell_from_molecule(["Fe", "Cl"], [[0.0, 0.0, 0.0], [2.2, 0.0, 0.0]], padding=5.0)
+    text = writer.build_input(cell)
+    assert "&KIND Fe" in text and "&KIND Cl" in text
+    coord = text.split("&COORD")[1].split("&END COORD")[0]
+    assert " Fe " in coord and " Cl " in coord
+    assert "FE" not in coord and "CL" not in coord

@@ -57,6 +57,11 @@ _XC_KEYWORD = {
     "B3LYP": "B3LYP",
 }
 
+# The XC_FUNCTIONAL shortcut only supplies the DFT part of a hybrid; the manual
+# is explicit that the exact-exchange parameters "are not set automatically",
+# so an &HF section has to be written alongside it.
+_HF_FRACTION = {"PBE0": 0.25, "B3LYP": 0.20}
+
 
 def default_settings() -> Dict:
     return {
@@ -80,6 +85,7 @@ def default_settings() -> Dict:
         "smear_temperature": 300.0,
         "added_mos": 20,
         "vdw": VDW_OPTIONS[0],
+        "hf_max_memory": 2000,
         "periodic": "XYZ",
         "scaled_coordinates": True,
         "kpoint_mode": KPOINT_MODES[0],
@@ -114,6 +120,15 @@ class Section:
 
     def keyword(self, key: str, value=None) -> "Section":
         self.items.append((key.upper(), "" if value is None else _format(value)))
+        return self
+
+    def entry(self, name: str, value: str) -> "Section":
+        """A line whose first field is data, not a keyword — so it keeps its case.
+
+        &COORD rows are matched against the &KIND names, and those are written
+        as the element symbol, so "Fe" must not become "FE" here.
+        """
+        self.items.append((str(name), str(value)))
         return self
 
     def section(self, name: str, argument: str = "") -> "Section":
@@ -196,7 +211,7 @@ def build_dft(cell: Cell, settings: Dict) -> Section:
     mgrid.keyword("NGRIDS", 4)
 
     dft.add(build_scf(settings))
-    dft.add(build_xc(settings))
+    dft.add(build_xc(cell, settings))
 
     kpoints = build_kpoints(cell, settings)
     if kpoints is not None:
@@ -235,10 +250,51 @@ def build_scf(settings: Dict) -> Section:
     return scf
 
 
-def build_xc(settings: Dict) -> Section:
+def hf_fraction(settings: Dict) -> float:
+    """Exact-exchange fraction for the chosen functional, 0.0 if it is not a hybrid."""
+    return _HF_FRACTION.get(str(settings.get("functional", "PBE")), 0.0)
+
+
+def hf_cutoff_radius(cell: Cell) -> float:
+    """Truncation radius for the periodic Coulomb operator, in Angstrom.
+
+    A truncated operator is only defined out to half the shortest cell vector,
+    so this is the largest radius the cell allows (capped at CP2K's usual 6 A).
+    """
+    return min(6.0, min(float(length) for length in cell.lengths) / 2.0)
+
+
+def build_hf(cell: Cell, settings: Dict) -> Optional[Section]:
+    """&HF for a hybrid functional; None otherwise."""
+    fraction = hf_fraction(settings)
+    if fraction <= 0.0:
+        return None
+
+    hf = Section("HF")
+    hf.keyword("FRACTION", fraction)
+    hf.section("SCREENING").keyword("EPS_SCHWARZ", 1e-10)
+    hf.section("MEMORY").keyword("MAX_MEMORY", int(settings.get("hf_max_memory", 2000)))
+    periodic = str(settings.get("periodic", "XYZ")).upper() != "NONE"
+    interaction = hf.section("INTERACTION_POTENTIAL")
+    if periodic:
+        # A bare 1/r operator does not converge under periodic boundary
+        # conditions; CP2K's truncated operator is the standard replacement.
+        interaction.keyword("POTENTIAL_TYPE", "TRUNCATED")
+        interaction.keyword("CUTOFF_RADIUS", round(hf_cutoff_radius(cell), 3))
+        interaction.keyword("T_C_G_DATA", "t_c_g.dat")
+    else:
+        interaction.keyword("POTENTIAL_TYPE", "COULOMB")
+    return hf
+
+
+def build_xc(cell: Cell, settings: Dict) -> Section:
     functional = settings.get("functional", "PBE")
     xc = Section("XC")
     xc.section("XC_FUNCTIONAL", _XC_KEYWORD.get(functional, "PBE"))
+
+    hf = build_hf(cell, settings)
+    if hf is not None:
+        xc.add(hf)
 
     vdw = settings.get("vdw", "None")
     if vdw and vdw != "None":
@@ -285,7 +341,7 @@ def build_subsys(cell: Cell, settings: Dict) -> Section:
     atoms, counts = sorted_by_species(cell)
     for atom in atoms:
         values = atom.fract if scaled else atom.cart
-        coord.keyword(
+        coord.entry(
             atom.element, " ".join(f"{float(value):.10f}" for value in values)
         )
 
@@ -432,6 +488,26 @@ def validate(cell: Cell, settings: Optional[Dict] = None) -> List[str]:
             "A charged periodic cell is neutralised by a background charge; use &POISSON with "
             "PSOLVER MT for a genuinely isolated charged system."
         )
+
+    if hf_fraction(settings) > 0.0:
+        messages.append(
+            f"{settings.get('functional')} is a hybrid: an &HF section is written with "
+            f"FRACTION {hf_fraction(settings):g}, but check EPS_SCHWARZ and MAX_MEMORY for "
+            "your machine, and expect it to cost far more than a GGA. An &AUXILIARY_DENSITY_"
+            "MATRIX_METHOD (ADMM) basis makes it affordable."
+        )
+        if str(settings.get("periodic", "XYZ")).upper() != "NONE":
+            radius = hf_cutoff_radius(cell)
+            messages.append(
+                f"The truncated Coulomb operator is capped at half the shortest cell vector, "
+                f"so CUTOFF_RADIUS is {radius:.2f} A here. Below about 6 A the exchange is "
+                "noticeably truncated — use a larger cell if you need the full hybrid."
+            )
+        if uses_kpoints:
+            messages.append(
+                "CP2K does not support hybrid functionals with k-points; run the hybrid at "
+                "Gamma in a supercell instead."
+            )
 
     if not is_ot and int(settings.get("added_mos", 0)) < 1:
         messages.append(
