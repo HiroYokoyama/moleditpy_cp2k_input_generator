@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 from .cell_model import (
     Cell,
     kpoint_mesh_from_density,
+    reciprocal_lengths,
     looks_like_slab,
     sorted_by_species,
     structure_warnings,
@@ -210,6 +211,9 @@ def build_dft(cell: Cell, settings: Dict) -> Section:
     mgrid.keyword("REL_CUTOFF", float(settings.get("rel_cutoff", 60.0)))
     mgrid.keyword("NGRIDS", 4)
 
+    poisson = build_poisson(settings)
+    if poisson is not None:
+        dft.add(poisson)
     dft.add(build_scf(settings))
     dft.add(build_xc(cell, settings))
 
@@ -219,6 +223,26 @@ def build_dft(cell: Cell, settings: Dict) -> Section:
 
     dft.raw(settings.get("extra_dft", ""))
     return dft
+
+
+#: Cell periodicities the Martyna-Tuckerman solver handles.
+_MT_PERIODIC = ("NONE", "XY")
+
+
+def build_poisson(settings: Dict) -> Optional[Section]:
+    """&POISSON matching a non-periodic or slab &CELL, None when fully periodic.
+
+    &CELL PERIODIC sets the neighbour lists only; the electrostatics follow
+    &POISSON, which defaults to XYZ. Without this section a "non-periodic"
+    molecule still interacts with its periodic images.
+    """
+    periodic = str(settings.get("periodic", "XYZ")).upper()
+    if periodic not in _MT_PERIODIC:
+        return None
+    poisson = Section("POISSON")
+    poisson.keyword("PERIODIC", periodic)
+    poisson.keyword("PSOLVER", "MT")
+    return poisson
 
 
 def build_scf(settings: Dict) -> Section:
@@ -258,10 +282,16 @@ def hf_fraction(settings: Dict) -> float:
 def hf_cutoff_radius(cell: Cell) -> float:
     """Truncation radius for the periodic Coulomb operator, in Angstrom.
 
-    A truncated operator is only defined out to half the shortest cell vector,
-    so this is the largest radius the cell allows (capped at CP2K's usual 6 A).
+    The operator must fit inside the cell's inscribed sphere, so the limit is
+    half the shortest distance between opposite faces, 1 / |b_i|. For a skewed
+    cell that is shorter than half the shortest cell vector: a hexagonal
+    a = 4 A cell allows 1.73 A, not 2. Capped at CP2K's usual 6 A.
     """
-    return min(6.0, min(float(length) for length in cell.lengths) / 2.0)
+    try:
+        widths = [1.0 / value for value in reciprocal_lengths(cell.lattice)]
+    except (ValueError, ZeroDivisionError):
+        widths = [float(length) for length in cell.lengths]
+    return min(6.0, min(widths) / 2.0)
 
 
 def build_hf(cell: Cell, settings: Dict) -> Optional[Section]:
@@ -456,15 +486,26 @@ def validate(cell: Cell, settings: Optional[Dict] = None) -> List[str]:
         messages.append(
             "The slab is sampled along the vacuum direction; set the third k-point to 1."
         )
-    if cell.source == "molecule" and settings.get("periodic", "XYZ") == "XYZ":
+    periodic = str(settings.get("periodic", "XYZ")).upper()
+    if cell.source == "molecule" and periodic == "XYZ":
         messages.append(
-            "An isolated molecule is being treated as fully periodic — add a &POISSON section "
-            "with PERIODIC NONE and PSOLVER MT (or WAVELET) to remove the image interaction."
+            "An isolated molecule is being treated as fully periodic — set PERIODIC to NONE, "
+            "which also writes &POISSON PSOLVER MT, to remove the image interaction."
         )
-    if looks_like_slab(cell) and settings.get("periodic", "XYZ") == "XYZ":
+    if looks_like_slab(cell) and periodic == "XYZ":
         messages.append(
-            "For a charged or strongly polar slab consider PERIODIC XY with PSOLVER MT so the "
-            "vacuum is not periodic."
+            "For a charged or strongly polar slab consider PERIODIC XY, which writes &POISSON "
+            "PSOLVER MT, so the vacuum is not periodic."
+        )
+    if periodic in _MT_PERIODIC:
+        messages.append(
+            "The Martyna-Tuckerman solver needs a box about twice the size of the charge "
+            "density along every non-periodic direction — check the vacuum."
+        )
+    elif periodic != "XYZ":
+        messages.append(
+            f"PERIODIC {periodic} sets the neighbour lists only; add a &POISSON section with a "
+            "solver that supports this periodicity, or the electrostatics stay fully periodic."
         )
 
     cutoff = float(settings.get("cutoff", 400.0))
