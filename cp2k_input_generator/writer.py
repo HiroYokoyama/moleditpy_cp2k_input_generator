@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from .cell_model import (
@@ -171,8 +172,11 @@ def _format(value) -> str:
         return ".TRUE." if value else ".FALSE."
     if isinstance(value, float):
         if value != 0 and (abs(value) < 1e-3 or abs(value) >= 1e5):
-            return f"{value:.2E}"
-        return f"{value:g}"
+            mantissa, exponent = f"{value:.14E}".split("E")
+            mantissa = mantissa.rstrip("0")
+            whole, fraction = mantissa.split(".")
+            return f"{whole}.{fraction.ljust(2, '0')}E{exponent}"
+        return f"{value:.15g}"
     if isinstance(value, (list, tuple)):
         return " ".join(_format(item) for item in value)
     return str(value)
@@ -230,18 +234,20 @@ _MT_PERIODIC = ("NONE", "XY")
 
 
 def build_poisson(settings: Dict) -> Optional[Section]:
-    """&POISSON matching a non-periodic or slab &CELL, None when fully periodic.
+    """&POISSON matching partial/nonperiodic &CELL, None when fully periodic.
 
     &CELL PERIODIC sets the neighbour lists only; the electrostatics follow
     &POISSON, which defaults to XYZ. Without this section a "non-periodic"
     molecule still interacts with its periodic images.
     """
     periodic = str(settings.get("periodic", "XYZ")).upper()
-    if periodic not in _MT_PERIODIC:
+    if periodic == "XYZ":
         return None
+    if periodic not in PERIODICITY:
+        raise ValueError(f"Unsupported periodicity: {periodic}")
     poisson = Section("POISSON")
     poisson.keyword("PERIODIC", periodic)
-    poisson.keyword("PSOLVER", "MT")
+    poisson.keyword("PSOLVER", "MT" if periodic in _MT_PERIODIC else "ANALYTIC")
     return poisson
 
 
@@ -310,7 +316,7 @@ def build_hf(cell: Cell, settings: Dict) -> Optional[Section]:
         # A bare 1/r operator does not converge under periodic boundary
         # conditions; CP2K's truncated operator is the standard replacement.
         interaction.keyword("POTENTIAL_TYPE", "TRUNCATED")
-        interaction.keyword("CUTOFF_RADIUS", round(hf_cutoff_radius(cell), 3))
+        interaction.keyword("CUTOFF_RADIUS", math.floor(hf_cutoff_radius(cell) * 1e8) / 1e8)
         interaction.keyword("T_C_G_DATA", "t_c_g.dat")
     else:
         interaction.keyword("POTENTIAL_TYPE", "COULOMB")
@@ -333,7 +339,6 @@ def build_xc(cell: Cell, settings: Dict) -> Section:
         pair = potential.section("PAIR_POTENTIAL")
         if vdw == "DFT-D2":
             pair.keyword("TYPE", "DFTD2")
-            pair.keyword("PARAMETER_FILE_NAME", "dftd3.dat")
         else:
             pair.keyword("TYPE", "DFTD3(BJ)" if "BJ" in vdw else "DFTD3")
             pair.keyword("PARAMETER_FILE_NAME", "dftd3.dat")
@@ -424,6 +429,9 @@ def build_motion(settings: Dict) -> Optional[Section]:
 
 def build_input(cell: Cell, settings: Optional[Dict] = None) -> str:
     settings = {**default_settings(), **(settings or {})}
+    errors = input_errors(cell, settings)
+    if errors:
+        raise ValueError("\n".join(errors))
     blocks: List[Section] = [build_global(settings), build_force_eval(cell, settings)]
     motion = build_motion(settings)
     if motion is not None:
@@ -504,8 +512,8 @@ def validate(cell: Cell, settings: Optional[Dict] = None) -> List[str]:
         )
     elif periodic != "XYZ":
         messages.append(
-            f"PERIODIC {periodic} sets the neighbour lists only; add a &POISSON section with a "
-            "solver that supports this periodicity, or the electrostatics stay fully periodic."
+            f"PERIODIC {periodic} uses the ANALYTIC &POISSON solver; its slow convergence "
+            "requires checking the vacuum and grid cutoffs."
         )
 
     cutoff = float(settings.get("cutoff", 400.0))
@@ -540,14 +548,14 @@ def validate(cell: Cell, settings: Optional[Dict] = None) -> List[str]:
         if str(settings.get("periodic", "XYZ")).upper() != "NONE":
             radius = hf_cutoff_radius(cell)
             messages.append(
-                f"The truncated Coulomb operator is capped at half the shortest cell vector, "
+                f"The truncated Coulomb operator fits half the shortest face-to-face cell width, "
                 f"so CUTOFF_RADIUS is {radius:.2f} A here. Below about 6 A the exchange is "
                 "noticeably truncated — use a larger cell if you need the full hybrid."
             )
         if uses_kpoints:
             messages.append(
-                "CP2K does not support hybrid functionals with k-points; run the hybrid at "
-                "Gamma in a supercell instead."
+                "This generator uses direct HFX: select Gamma sampling. CP2K's k-point "
+                "hybrids need an RI-HFX configuration."
             )
 
     if not is_ot and int(settings.get("added_mos", 0)) < 1:
@@ -555,3 +563,13 @@ def validate(cell: Cell, settings: Optional[Dict] = None) -> List[str]:
             "Smearing needs empty states — set ADDED_MOS to roughly 20% of the occupied orbitals."
         )
     return messages
+
+
+def input_errors(cell: Cell, settings: Dict) -> List[str]:
+    """Configurations this writer cannot turn into a runnable input."""
+    errors = []
+    if max(effective_mesh(cell, settings)) > 1 and hf_fraction(settings) > 0:
+        errors.append("This generator's direct HFX setup requires Gamma sampling; k-point HFX needs an RI-HFX configuration.")
+    if not str(settings.get("scf_solver", SCF_SOLVERS[0])).startswith("OT") and int(settings.get("added_mos", 20)) == 0:
+        errors.append("Smearing requires nonzero ADDED_MOS.")
+    return errors

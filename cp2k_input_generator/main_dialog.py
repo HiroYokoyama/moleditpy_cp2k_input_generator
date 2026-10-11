@@ -7,6 +7,7 @@ import os
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -28,6 +29,7 @@ from PyQt6.QtWidgets import (
 
 from . import PLUGIN_NAME, PLUGIN_VERSION
 from . import writer
+from .cell_model import molecule_charge_and_multiplicity
 from .structure_panel import SOURCE_MOLECULE, StructurePanel, dropped_cif_path
 
 
@@ -455,15 +457,20 @@ class Cp2kInputDialog(QDialog):
                 for element, basis, potential in writer.kind_summary(self._cell, settings)
             )
         )
-        self.preview.setPlainText(writer.build_input(self._cell, settings))
+        try:
+            content = writer.build_input(self._cell, settings)
+        except ValueError as exc:
+            self.preview.setPlainText(f"# Invalid input: {exc}")
+            self._show_warnings(writer.validate(self._cell, settings))
+            self.save_button.setEnabled(False)
+            return
+        self.preview.setPlainText(content)
         self._show_warnings(writer.validate(self._cell, settings))
         self.save_button.setEnabled(True)
 
     def _apply_auto_charge(self) -> None:
         if not self.auto_charge_check.isChecked() or self._get_molecule is None:
             return
-        from .cell_model import molecule_charge_and_multiplicity
-
         # The molecule open in MoleditPy only describes a cell boxed from it.
         # For a CIF its charge and spin belong to something else
         # entirely, so a crystal is written neutral rather than keeping
@@ -493,8 +500,6 @@ class Cp2kInputDialog(QDialog):
         self.warning_label.setVisible(True)
 
     def copy_preview(self) -> None:
-        from PyQt6.QtWidgets import QApplication
-
         clipboard = QApplication.clipboard()
         if clipboard is not None:
             clipboard.setText(self.preview.toPlainText())
@@ -504,6 +509,11 @@ class Cp2kInputDialog(QDialog):
             QMessageBox.warning(self, "CP2K Input Generator", "There is no valid structure to write.")
             return
         settings = self.read_settings()
+        try:
+            content = writer.build_input(self._cell, settings)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid CP2K input", str(exc))
+            return
         path, _ = QFileDialog.getSaveFileName(
             self, "Save CP2K input", writer.suggested_filename(settings), "CP2K input (*.inp);;All files (*)"
         )
@@ -511,7 +521,7 @@ class Cp2kInputDialog(QDialog):
             return
         try:
             with open(path, "w", encoding="utf-8", newline="\n") as handle:
-                handle.write(writer.build_input(self._cell, settings))
+                handle.write(content)
         except OSError as exc:
             QMessageBox.critical(self, "CP2K Input Generator", f"Could not write the file:\n{exc}")
             return

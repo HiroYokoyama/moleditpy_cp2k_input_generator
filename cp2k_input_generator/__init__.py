@@ -2,9 +2,10 @@
 
 import logging
 import os
+from .writer import default_settings
 
 PLUGIN_NAME = "CP2K Input Generator"
-PLUGIN_VERSION = "0.8.0"
+PLUGIN_VERSION = "0.9.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Generate CP2K Quickstep inputs from the current molecule (in a vacuum box) "
@@ -19,13 +20,15 @@ PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 WINDOW_ID = "cp2k_input_generator_dialog"
 
+# The dialog reads the plugin metadata when it is imported.
+from . import main_dialog
+from .structure_panel import find_cif_viewer_widget
+
 _context = None
 _dialog_opened = False
 
 
 def get_default_settings():
-    from .writer import default_settings
-
     return default_settings()
 
 
@@ -38,8 +41,6 @@ def _open_dialog(mw):
 
     if _context is not None:
         mw = _context.get_main_window()
-
-    from .main_dialog import Cp2kInputDialog
 
     if _context is not None:
         existing = _context.get_window(WINDOW_ID)
@@ -64,12 +65,10 @@ def _open_dialog(mw):
                 pass
 
     def _get_cif_viewer():
-        from .structure_panel import find_cif_viewer_widget
-
         return find_cif_viewer_widget(mw)
 
     _dialog_opened = True
-    dlg = Cp2kInputDialog(
+    dlg = main_dialog.Cp2kInputDialog(
         parent=mw,
         persistent_settings=current_settings,
         get_molecule=_get_molecule,

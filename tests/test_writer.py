@@ -192,7 +192,10 @@ def test_vdw_pair_potential(water_cell, option, expected):
     text = writer.build_input(water_cell, {"vdw": option})
     entries = keywords(text, "PAIR_POTENTIAL")
     assert entries["TYPE"] == expected
-    assert entries["PARAMETER_FILE_NAME"] == "dftd3.dat"
+    if option != "DFT-D2":
+        assert entries["PARAMETER_FILE_NAME"] == "dftd3.dat"
+    else:
+        assert "PARAMETER_FILE_NAME" not in entries
     assert entries["REFERENCE_FUNCTIONAL"] == "PBE"
 
 
