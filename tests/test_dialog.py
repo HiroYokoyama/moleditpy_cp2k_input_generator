@@ -111,7 +111,7 @@ def test_to_float(text, expected):
 
 
 def test_dialog_save_writes_the_input(dialog, tmp_path, monkeypatch):
-    from PyQt6.QtWidgets import QFileDialog, QMessageBox
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
 
     target = tmp_path / "run.inp"
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
@@ -123,7 +123,7 @@ def test_dialog_save_writes_the_input(dialog, tmp_path, monkeypatch):
 
 
 def test_dialog_save_is_cancellable(dialog, tmp_path, monkeypatch):
-    from PyQt6.QtWidgets import QFileDialog
+    from PySide6.QtWidgets import QFileDialog
 
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: ("", ""))
     dialog.save_input()
@@ -131,7 +131,7 @@ def test_dialog_save_is_cancellable(dialog, tmp_path, monkeypatch):
 
 
 def test_dialog_save_without_structure_warns(qapp, monkeypatch):
-    from PyQt6.QtWidgets import QMessageBox
+    from PySide6.QtWidgets import QMessageBox
 
     seen = []
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: seen.append(a))

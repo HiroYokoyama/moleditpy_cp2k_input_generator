@@ -61,7 +61,7 @@ jobs:
 
       - name: Build release package
         run: |
-          cp README.md LICENSE cp2k_input_generator/
+          cp README.md LICENSE COPYING LICENSING.md cp2k_input_generator/
           zip -r "cp2k_input_generator_${VERSION}.zip" cp2k_input_generator/ \
             --exclude "*/__pycache__/*" "*/.git/*"
 
