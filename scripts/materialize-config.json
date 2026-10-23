@@ -1,0 +1,9 @@
+{
+  "package": "cp2k_input_generator",
+  "files": [
+    "cell_model.py",
+    "elements.py",
+    "cell_preview.py",
+    "structure_panel.py"
+  ]
+}
