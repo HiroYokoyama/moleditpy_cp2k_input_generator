@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 from . import PLUGIN_NAME, PLUGIN_VERSION
 from . import writer
 from .cell_model import molecule_charge_and_multiplicity
-from .structure_panel import SOURCE_MOLECULE, StructurePanel, dropped_cif_path
+from .structure_panel import accept_drop_as_copy, SOURCE_MOLECULE, StructurePanel, dropped_cif_path
 
 
 class Cp2kInputDialog(QDialog):
@@ -318,7 +318,7 @@ class Cp2kInputDialog(QDialog):
     def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt naming
         """Accept a CIF dropped anywhere on the dialog, not only on the panel."""
         if dropped_cif_path(event.mimeData()):
-            event.acceptProposedAction()
+            accept_drop_as_copy(event)
         else:
             event.ignore()
 
@@ -330,8 +330,8 @@ class Cp2kInputDialog(QDialog):
         if not path:
             event.ignore()
             return
-        self.structure_panel.load_cif_path(path)
-        event.acceptProposedAction()
+        if accept_drop_as_copy(event):
+            self.structure_panel.load_cif_path(path)
 
     # -- settings ---------------------------------------------------------
 
