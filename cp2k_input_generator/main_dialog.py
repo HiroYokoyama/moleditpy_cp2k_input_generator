@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -28,12 +29,15 @@ from PySide6.QtWidgets import (
 )
 
 from . import PLUGIN_NAME, PLUGIN_VERSION
-from . import writer
+from . import cluster_link, writer
 from .cell_model import molecule_charge_and_multiplicity
 from .structure_panel import accept_drop_as_copy, SOURCE_MOLECULE, StructurePanel, dropped_cif_path
 
 
 class Cp2kInputDialog(QDialog):
+    _saved_path: Optional[str] = None  # the last file written
+    _saved_content: Optional[str] = None  # what was written there
+
     def __init__(
         self,
         parent=None,
@@ -88,9 +92,19 @@ class Cp2kInputDialog(QDialog):
         buttons = QDialogButtonBox()
         self.save_button = buttons.addButton("Save Input...", QDialogButtonBox.ButtonRole.AcceptRole)
         self.copy_button = buttons.addButton("Copy", QDialogButtonBox.ButtonRole.ActionRole)
+        self.submit_button = buttons.addButton(
+            "Submit to Cluster...", QDialogButtonBox.ButtonRole.ActionRole
+        )
+        self.submit_button.setToolTip(
+            "Save the input and hand it to the Job Manager plugin, which uploads "
+            "and submits it to a remote cluster."
+        )
+        # Only meaningful with Job Manager installed; otherwise it is not shown.
+        self.submit_button.setVisible(cluster_link.is_available(self.parent()))
         buttons.addButton(QDialogButtonBox.StandardButton.Close)
         self.save_button.clicked.connect(self.save_input)
         self.copy_button.clicked.connect(self.copy_preview)
+        self.submit_button.clicked.connect(self.submit_to_cluster)
         buttons.rejected.connect(self.close)
         layout.addWidget(buttons)
 
@@ -505,27 +519,60 @@ class Cp2kInputDialog(QDialog):
             clipboard.setText(self.preview.toPlainText())
 
     def save_input(self) -> None:
+        self._write_input(announce=True)
+
+    def _saved_is_current(self) -> bool:
+        """True when the last written file still holds what the dialog would write."""
+        if not self._saved_path or not os.path.isfile(self._saved_path) or self._cell is None:
+            return False
+        try:
+            return writer.build_input(self._cell, self.read_settings()) == self._saved_content
+        except ValueError:
+            return False
+
+    def submit_to_cluster(self) -> None:
+        """Hand the written input to Job Manager. Writes it first when needed."""
+        path = self._saved_path if self._saved_is_current() else self._write_input(announce=False)
+        if path is None:
+            return  # nothing valid to write, or the save was cancelled
+        name = os.path.splitext(os.path.basename(path))[0]
+        if not cluster_link.submit_to_cluster(self.parent(), path, name=name):
+            QMessageBox.warning(
+                self,
+                PLUGIN_NAME,
+                "Job Manager could not accept the file. Check that the plugin is "
+                "installed and enabled.",
+            )
+            return
+        self.close()
+
+    def _write_input(self, announce: bool) -> Optional[str]:
+        """Ask for a file name and write the input. The path, or None if nothing was written."""
         if self._cell is None:
             QMessageBox.warning(self, "CP2K Input Generator", "There is no valid structure to write.")
-            return
+            return None
         settings = self.read_settings()
         try:
             content = writer.build_input(self._cell, settings)
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid CP2K input", str(exc))
-            return
+            return None
         path, _ = QFileDialog.getSaveFileName(
             self, "Save CP2K input", writer.suggested_filename(settings), "CP2K input (*.inp);;All files (*)"
         )
         if not path:
-            return
+            return None
         try:
             with open(path, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(content)
         except OSError as exc:
             QMessageBox.critical(self, "CP2K Input Generator", f"Could not write the file:\n{exc}")
-            return
-        QMessageBox.information(self, "CP2K Input Generator", f"Wrote\n{os.path.abspath(path)}")
+            return None
+        self._saved_path = path
+        self._saved_content = content
+        if announce:
+            QMessageBox.information(self, "CP2K Input Generator", f"Wrote\n{os.path.abspath(path)}")
+        return path
 
 
 def _to_float(text, default):
